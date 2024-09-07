@@ -1,0 +1,132 @@
+#define BLYNK_TEMPLATE_ID "TMPL3RG0HXOCL"
+#define BLYNK_TEMPLATE_NAME "biomedical project"
+#define BLYNK_AUTH_TOKEN "naBNk6Zf2bD1EHupkQfanbMFp8byMjmp"
+#define BLYNK_DEVICE_NAME "BioMedical Project"  
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <Wire.h>
+#include "MAX30105.h"
+#include "spo2_algorithm.h"
+#include <BlynkSimpleEsp8266.h>
+#define I2C_BUFFER_LENGTH
+#define I2C_BUFFER_LENGTH 32 
+char auth[] =" naBNk6Zf2rD1EHupkQfanbMFp8ByMjmp";  // Auth Token from Blynk
+char ssid[] = "";  // Your WiFi SSID
+char pass[] = "";  // Your WiFi Password
+
+MAX30105 particleSensor;
+
+const int LOCAL_BUFFER_SIZE = 100;  // Use a different name for buffer size
+
+uint32_t irBuffer[LOCAL_BUFFER_SIZE];  // IR data from the sensor max30102 
+uint32_t redBuffer[LOCAL_BUFFER_SIZE];  // Red data from the sensor 
+
+int32_t spo2  ;
+int8_t validSPO2;
+int32_t heartRate ;
+int8_t validHeartRate ;
+BlynkTimer timer;
+const int BEAT_THRESHOLD = 550; //ecg
+int lastEcgValue = 0;//ecg 
+// Function to send sensor data to Blynk
+void sendSensorData() {
+  // Collect data
+  for (int i = 0; i < LOCAL_BUFFER_SIZE; i++)//100 
+   {
+    while (particleSensor.available() == false) {
+      particleSensor.check();  // Wait for new data
+    }
+    redBuffer[i] = particleSensor.getRed();  // Get Red LED reading
+    irBuffer[i] = particleSensor.getIR();    // Get IR LED reading
+    particleSensor.nextSample();  // Move to the next sample
+  }
+
+  // Calculate heart rate and SpO2
+  maxim_heart_rate_and_oxygen_saturation(irBuffer, LOCAL_BUFFER_SIZE, redBuffer, &spo2, &validSPO2, &heartRate, &validHeartRate);
+
+  // Display on Serial Monitor
+  Serial.print("Heart Rate: "); 
+
+  if (heartRate >=100)  //valid hearrate change 
+  {    
+     Serial.print("Invalid");  
+    
+  }  
+    else if  (heartRate <=98) 
+  {
+   Serial.print(heartRate);  // if not work then add valid heart rate 
+     Blynk.virtualWrite(V0, heartRate); 
+    Blynk.virtualWrite(V1, heartRate);// image 
+   } 
+    else
+  {  
+     Serial.print("Invalid"); 
+       Serial.print(heartRate);  // if not work then add valid heart rate 
+  }
+
+  Serial.print(" BPM, SpO2: ");
+  if (spo2 >=100 && spo2<=50)  
+  {
+    Serial.println("Invalid");
+  } 
+   else if   (validSPO2 <=100)
+  {
+    Serial.print(spo2);
+    Serial.println(" %");
+    Blynk.virtualWrite(V2, spo2);  // Send SpO2 to Blynk
+  } 
+  else 
+  { 
+     Serial.println("Invalid");
+  }
+} 
+    
+
+void setup() 
+ {  
+  pinMode(A0, INPUT); //ECG
+  
+  Serial.begin(115200); 
+  
+  Wire.begin(D2, D1);  // Initialize I2C
+
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) 
+  {
+    Serial.println("MAX30102 not found. Please check wiring.");
+    while (1);
+  }
+
+  particleSensor.setup();  // Configure sensor
+  particleSensor.setPulseAmplitudeRed(0x1F);   // Set Red LED pulse amplitude
+  particleSensor.setPulseAmplitudeIR(0x1F);    // Set IR LED pulse amplitude
+// Connect to WiFi and Blynk
+  Blynk.begin(auth, ssid, pass);
+
+  // Timer to send data to Blynk every 2 seconds
+  timer.setInterval(2000L, sendSensorData);  // SP02 ,HEART RATE
+  timer.setInterval(1000L, sendSensorData); //ECG
+   
+  
+
+  Serial.println("Place your finger on the sensor...");
+}
+ 
+void loop() 
+ {   
+   int ecgValue = analogRead(A0);
+     
+ if(ecgValue<=50)
+ { 
+  Serial.println("INVALID"); 
+ } 
+ else
+ {  Serial.println(ecgValue); 
+  Serial.print(ecgValue);
+   Blynk.virtualWrite(V3, ecgValue); 
+    delay(30);  
+ } 
+
+ 
+  Blynk.run();  // Run Blynk
+  timer.run();  // Run timer to send data to Blynk
+}
